@@ -39,6 +39,12 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/loomeval
       REDIS_URL: redis://localhost:6379
       NODE_ENV: test
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+      ARTIFACT_STORE_TYPE: local
+      REPLAY_ALLOWED_DOMAINS: localhost,127.0.0.1
+      TRACE_RETENTION_DAYS: 30
+      ARTIFACT_RETENTION_DAYS: 30
+      SCREENSHOT_RETENTION_DAYS: 7
 
     steps:
       - name: Checkout repository
@@ -68,19 +74,34 @@ jobs:
         run: npx prisma generate
 
       - name: Run database migrations
-        run: pnpm run db:migrate:deploy 2>&1 | tee logs/migrations.log
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm run db:migrate:deploy 2>&1 | tee logs/migrations.log
 
       - name: Lint
-        run: pnpm run lint 2>&1 | tee logs/lint.log
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm run lint 2>&1 | tee logs/lint.log
 
       - name: Type-check
-        run: pnpm run typecheck 2>&1 | tee logs/typecheck.log
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm run typecheck 2>&1 | tee logs/typecheck.log
 
       - name: Run tests
-        run: pnpm run test:ci 2>&1 | tee logs/tests.log
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm run test:ci 2>&1 | tee logs/tests.log
 
       - name: Build
-        run: pnpm run build 2>&1 | tee logs/build.log
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm run build 2>&1 | tee logs/build.log
 
       # ── Upload failure evidence ──────────────────────────────────────────
       - name: Upload Playwright traces on failure
