@@ -42,18 +42,21 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5df2 # v4.0.0
         with:
           version: 9
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@1d24570b6667224d71f4314e47090018587e224d # v4.2.0
         with:
           node-version: 20
           cache: 'pnpm'
+
+      - name: Create logs directory
+        run: mkdir -p logs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -65,24 +68,24 @@ jobs:
         run: npx prisma generate
 
       - name: Run database migrations
-        run: pnpm run db:migrate:deploy
+        run: pnpm run db:migrate:deploy 2>&1 | tee logs/migrations.log
 
       - name: Lint
-        run: pnpm run lint
+        run: pnpm run lint 2>&1 | tee logs/lint.log
 
       - name: Type-check
-        run: pnpm run typecheck
+        run: pnpm run typecheck 2>&1 | tee logs/typecheck.log
 
       - name: Run tests
-        run: pnpm run test
+        run: pnpm run test:ci 2>&1 | tee logs/tests.log
 
       - name: Build
-        run: pnpm run build
+        run: pnpm run build 2>&1 | tee logs/build.log
 
       # ── Upload failure evidence ──────────────────────────────────────────
       - name: Upload Playwright traces on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: playwright-traces
           path: |
@@ -93,7 +96,7 @@ jobs:
 
       - name: Upload Vitest reports on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: vitest-report
           path: |
@@ -104,7 +107,7 @@ jobs:
 
       - name: Upload application logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
         with:
           name: app-logs
           path: |
