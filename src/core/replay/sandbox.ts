@@ -3,6 +3,7 @@ import { prisma } from '../../lib/db';
 import { EvaluationEngine } from '../evaluator/engine';
 import { InvoiceAgent, AgentConfig } from '../agent/invoiceAgent';
 import { DecisionProvider } from '../agent/decision';
+import { validateSelector, validateUrl } from './vocabulary';
 
 export interface ReplayCoverageReport {
   totalRecordedRequests: number;
@@ -132,12 +133,16 @@ export class ReplaySandbox {
     try {
       for (const action of actions) {
         if (action.actionType === 'NAVIGATE' && action.url) {
+          validateUrl(action.url);
           await page.goto(action.url);
         } else if (action.actionType === 'CLICK' && action.selector) {
+          validateSelector(action.selector);
           await page.click(action.selector);
         } else if (action.actionType === 'FILL' && action.selector && action.inputValue) {
+          validateSelector(action.selector);
           await page.fill(action.selector, action.inputValue);
         } else if (action.actionType === 'SUBMIT') {
+          validateSelector('#submit-button');
           await page.click('#submit-button');
         }
         stepsReplayed++;

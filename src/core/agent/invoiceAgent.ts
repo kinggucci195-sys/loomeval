@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { LoomEvalClient, SDKTracePayload } from '../sdk/client';
 import { LocalArtifactStore } from '../artifacts/store';
 import { DecisionProvider, AgentDecisionInput, AgentAction } from './decision';
+import { validateSelector, validateUrl } from '../replay/vocabulary';
 
 export interface AgentConfig {
   agentVersion: string;
@@ -136,6 +137,7 @@ export class InvoiceAgent {
       actionType: 'NAVIGATE',
       url: targetUrl,
     });
+    validateUrl(targetUrl);
     await page.goto(targetUrl);
 
     let stepCount = 0;
@@ -183,6 +185,7 @@ export class InvoiceAgent {
         // Screenshot before action
         const screenshotBuf = await page.screenshot({ type: 'png' });
 
+        validateSelector(selector);
         await page.fill(selector, action.value);
         history.push(`fill-${action.elementId}-${action.value}`);
       } else if (action.type === 'click') {
@@ -193,6 +196,7 @@ export class InvoiceAgent {
           selector,
         });
 
+        validateSelector(selector);
         await page.click(selector);
         history.push(`click-${action.elementId}`);
       } else if (action.type === 'submit') {
@@ -202,6 +206,7 @@ export class InvoiceAgent {
         });
 
         // Click submit and wait for API response
+        validateSelector('#submit-button');
         await Promise.all([
           page.click('#submit-button'),
           page.waitForTimeout(500), // wait briefly for response render

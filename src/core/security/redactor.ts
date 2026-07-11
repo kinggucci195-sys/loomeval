@@ -39,13 +39,54 @@ export class Redactor {
     let output = text;
     for (const rule of this.rules) {
       try {
-        const regex = new RegExp(rule.pattern, 'g');
+        let pattern = rule.pattern;
+        let flags = 'g';
+        if (pattern.startsWith('(?i)')) {
+          pattern = pattern.substring(4);
+          flags = 'gi';
+        }
+        const regex = new RegExp(pattern, flags);
         output = output.replace(regex, rule.replacement);
       } catch (err) {
         // Safe fallback for invalid regex patterns
       }
     }
     return output;
+  }
+
+  /**
+   * Scrub nested JSON structures of PII and credentials
+   */
+  redactObject(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+
+    if (typeof obj === 'string') {
+      return this.redactText(obj);
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.redactObject(item));
+    }
+
+    if (typeof obj === 'object') {
+      if (Object.prototype.toString.call(obj) === '[object Object]') {
+        const redacted: Record<string, any> = {};
+        const sensitiveKeys = ['authorization', 'cookie', 'set-cookie', 'token', 'password', 'ssn', 'x-api-key'];
+
+        for (const [key, value] of Object.entries(obj)) {
+          if (sensitiveKeys.includes(key.toLowerCase())) {
+            redacted[key] = '[REDACTED]';
+          } else {
+            redacted[key] = this.redactObject(value);
+          }
+        }
+        return redacted;
+      }
+    }
+
+    return obj;
   }
 
   /**
@@ -70,3 +111,4 @@ export class Redactor {
     }
   }
 }
+

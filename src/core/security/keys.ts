@@ -39,41 +39,73 @@ export class KeyManager {
    * Verifies an incoming API key against stored database hashes.
    * Returns the project metadata if valid, throws an error if invalid.
    */
-  static async verifyKey(plaintextKey: string): Promise<{ projectId: string; workspaceId: string }> {
-    if (!plaintextKey || !plaintextKey.startsWith('le_')) {
-      throw new Error('Invalid key format');
-    }
+  static async verifyKey(plaintextKey: string): Promise<{ projectId: string; workspaceId: string; scope: string }> {
+    const isValidFormat = plaintextKey && plaintextKey.startsWith('le_');
+    const keyToHash = isValidFormat ? plaintextKey : 'le_dummykeyforconstanttimecomparison';
+    const hashedKey = crypto.createHash('sha256').update(keyToHash).digest('hex');
 
-    const hashedKey = crypto.createHash('sha256').update(plaintextKey).digest('hex');
-
-    const keyRecord = await prisma.ingestionKey.findUnique({
-      where: { hashedKey },
-      include: {
-        project: {
-          select: {
-            id: true,
-            workspaceId: true,
+    const keyRecord = isValidFormat
+      ? await prisma.ingestionKey.findUnique({
+          where: { hashedKey },
+          include: {
+            project: {
+              select: {
+                id: true,
+                workspaceId: true,
+              },
+            },
           },
-        },
-      },
-    });
+        })
+      : null;
 
-    if (!keyRecord) {
-      throw new Error('API key not found');
+    const inputBuf = Buffer.from(hashedKey, 'hex');
+    const compareBuf = Buffer.from(keyRecord?.hashedKey || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'hex');
+    const isMatch = crypto.timingSafeEqual(inputBuf, compareBuf);
+
+    if (!isValidFormat || !keyRecord || !isMatch) {
+      throw new Error('Unauthorized: Invalid or expired API key');
     }
 
     if (keyRecord.revokedAt) {
-      throw new Error('API key has been revoked');
+      throw new Error('Unauthorized: Invalid or expired API key');
     }
 
     if (keyRecord.expiresAt && keyRecord.expiresAt < new Date()) {
-      throw new Error('API key has expired');
+      throw new Error('Unauthorized: Invalid or expired API key');
     }
 
-    // Update last used timestamp or write audit event in production
     return {
       projectId: keyRecord.projectId,
       workspaceId: keyRecord.project.workspaceId,
+      scope: keyRecord.scope,
     };
+  }
+
+  /**
+   * Rotates an existing key by verifying, revoking it, and generating a new key with same scope and project.
+   */
+  static async rotateKey(
+    oldPlaintextKey: string,
+    expiresInDays?: number
+  ): Promise<{ plaintextKey: string; keyPrefix: string }> {
+    // 1. Verify the old key using our secure verification logic
+    const context = await this.verifyKey(oldPlaintextKey);
+
+    const hashedKey = crypto.createHash('sha256').update(oldPlaintextKey).digest('hex');
+    
+    // Revoke old key
+    await prisma.ingestionKey.update({
+      where: { hashedKey },
+      data: { revokedAt: new Date() },
+    });
+
+    // Generate new key
+    const newKey = await this.generateKey(
+      context.projectId,
+      context.scope as 'INGEST' | 'READ' | 'ADMIN',
+      expiresInDays
+    );
+
+    return newKey;
   }
 }
