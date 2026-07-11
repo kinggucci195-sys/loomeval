@@ -1,73 +1,105 @@
-import { chromium } from 'playwright';
-import { prisma } from '../../lib/db';
-import { Redactor } from '../security/redactor';
+import { chromium, Page } from 'playwright';
+import * as crypto from 'crypto';
+import { LoomEvalClient, SDKTracePayload } from '../sdk/client';
+import { LocalArtifactStore } from '../artifacts/store';
+import { DecisionProvider, AgentDecisionInput, AgentAction } from './decision';
 
 export interface AgentConfig {
   agentVersion: string;
   promptVersion: string;
   systemInstructions: string;
   model: string;
+  ingestionKey: string;
+  environmentId: string;
 }
 
 export class InvoiceAgent {
   private config: AgentConfig;
-  private redactor: Redactor;
+  private client: LoomEvalClient;
+  private artifactStore: LocalArtifactStore;
+  private decisionProvider: DecisionProvider;
 
-  constructor(config: AgentConfig, redactor: Redactor) {
+  constructor(
+    config: AgentConfig,
+    decisionProvider: DecisionProvider,
+    customStore?: LocalArtifactStore
+  ) {
     this.config = config;
-    this.redactor = redactor;
+    this.client = new LoomEvalClient({ ingestionKey: config.ingestionKey });
+    this.artifactStore = customStore || new LocalArtifactStore();
+    this.decisionProvider = decisionProvider;
   }
 
   /**
-   * Run the browser agent workflow using Playwright.
-   * Takes a local HTML file path or live URL as target.
+   * Safe mapping from logical element IDs to CSS selectors.
+   * Prevents arbitrary CSS selector injection from models.
+   */
+  private mapElementIdToSelector(elementId: string): string {
+    const registry: Record<string, string> = {
+      'vendor-name': '#vendor-name',
+      'invoice-amount': '#invoice-amount',
+      'approval-checkbox': '#approval-checkbox',
+      'submit-button': '#submit-button',
+    };
+
+    const selector = registry[elementId];
+    if (!selector) {
+      throw new Error(`Access Denied: Unmapped element identifier: ${elementId}`);
+    }
+    return selector;
+  }
+
+  /**
+   * Execute the agent workflow using Playwright.
    */
   async runInvoiceEntry(
     targetUrl: string,
     vendorName: string,
     amount: number,
-    sessionId: string,
-    environmentName: 'PRODUCTION' | 'STAGING' | 'DEVELOPMENT' = 'DEVELOPMENT'
+    externalTraceId: string,
+    sessionId: string
   ): Promise<string> {
+    const startWallTime = Date.now();
     const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext();
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Playwright Browser';
+    const viewport = { width: 1280, height: 720 };
+
+    const context = await browser.newContext({
+      userAgent,
+      viewport,
+    });
     const page = await context.newPage();
 
-    // Trace capture objects
-    const actionsLogged: {
-      actionType: string;
-      selector?: string;
-      url?: string;
-      inputValue?: string;
-      coordinatesX?: number;
-      coordinatesY?: number;
-    }[] = [];
-    
-    const exchangesLogged: {
-      url: string;
-      method: string;
-      requestHeaders: string;
-      requestBody?: string;
-      responseHeaders: string;
-      responseBody?: string;
-      statusCode: number;
-      latencyMs: number;
-    }[] = [];
+    const actionsLogged: SDKTracePayload['actions'] = [];
+    const networkLogs: NonNullable<SDKTracePayload['networkLogs']> = [];
+    const consoleLogs: string[] = [];
+    const pageErrors: string[] = [];
 
-    // Intercept network
+    // Capture console messages
+    page.on('console', (msg) => {
+      consoleLogs.push(`[${msg.type()}] ${msg.text()}`);
+    });
+
+    // Capture page errors
+    page.on('pageerror', (err) => {
+      pageErrors.push(err.message);
+    });
+
+    // Intercept network requests for telemetry
     page.on('requestfinished', async (request) => {
       try {
         const response = await request.response();
         if (response) {
-          exchangesLogged.push({
+          const resText = await response.text().catch(() => null);
+          networkLogs.push({
             url: request.url(),
             method: request.method(),
             requestHeaders: JSON.stringify(request.headers()),
-            requestBody: request.postData() || undefined,
+            requestBody: request.postData() || null,
             responseHeaders: JSON.stringify(response.headers()),
-            responseBody: request.url().endsWith('.html') ? undefined : await response.text(),
+            responseBody: resText,
             statusCode: response.status(),
-            latencyMs: 10, // Simulated network time
+            latencyMs: 10, // Simulated request latency
           });
         }
       } catch (err) {
@@ -75,199 +107,178 @@ export class InvoiceAgent {
       }
     });
 
-    // 1. Navigate to Portal
-    actionsLogged.push({ actionType: 'NAVIGATE', url: targetUrl });
+    // In-memory route handler mapping for headless sandbox runs
+    await page.route('**/api/demo/invoices', async (route) => {
+      const request = route.request();
+      const method = request.method();
+      const headers = request.headers();
+      const postData = request.postData();
+
+      const req = new Request('http://localhost/api/demo/invoices', {
+        method,
+        headers,
+        body: postData,
+      });
+
+      const { POST, DELETE } = await import('../../app/api/demo/invoices/route');
+      const res = method === 'DELETE' ? await DELETE() : await POST(req);
+      const body = await res.text();
+
+      await route.fulfill({
+        status: res.status,
+        headers: Object.fromEntries(res.headers.entries()),
+        body,
+      });
+    });
+
+    // 1. Navigate
+    actionsLogged.push({
+      actionType: 'NAVIGATE',
+      url: targetUrl,
+    });
     await page.goto(targetUrl);
 
-    // 2. Extract DOM & Screenshots
-    const initialHtml = await page.content();
+    let stepCount = 0;
+    const maxSteps = 10;
+    const history: string[] = [];
+    let isTerminated = false;
+    let finalStatus: 'SUCCESS' | 'FAILED' = 'FAILED';
 
-    // 3. Fill Vendor Name
-    actionsLogged.push({
-      actionType: 'TYPE',
-      selector: '#vendor-name',
-      inputValue: vendorName,
-    });
-    await page.fill('#vendor-name', vendorName);
+    // Interactive Loop
+    while (stepCount < maxSteps && !isTerminated) {
+      stepCount++;
 
-    // 4. Fill Invoice Amount
-    actionsLogged.push({
-      actionType: 'TYPE',
-      selector: '#invoice-amount',
-      inputValue: String(amount),
-    });
-    await page.fill('#invoice-amount', String(amount));
+      // Extract current page interactive elements
+      const elements = [
+        { id: 'vendor-name', role: 'textbox', name: 'Vendor Name' },
+        { id: 'invoice-amount', role: 'textbox', name: 'Invoice Amount' },
+        { id: 'approval-checkbox', role: 'checkbox', name: 'Requires Approval' },
+        { id: 'submit-button', role: 'button', name: 'Submit Invoice' },
+      ];
 
-    // 5. Policy Decision: Should we check the approval checkbox?
-    // We mock the decision block based on systemInstructions (Prompt Version)
-    const isOverLimit = amount > 500;
-    const shouldCheckApproval = 
-      isOverLimit && this.config.systemInstructions.includes('MUST check');
+      // Get next action decision from provider
+      const decisionInput: AgentDecisionInput = {
+        vendorName,
+        amount,
+        history,
+        elements,
+      };
 
-    // In Agent V1, the prompt is bugged/ambiguous ("check if needed" instead of "MUST check"),
-    // so shouldCheckApproval will evaluate to false, creating the policy failure!
-    if (shouldCheckApproval) {
-      actionsLogged.push({
-        actionType: 'CLICK',
-        selector: '#approval-checkbox',
-      });
-      await page.click('#approval-checkbox');
+      const decision = await this.decisionProvider.decide(
+        decisionInput,
+        this.config.systemInstructions
+      );
+
+      const action = decision.action;
+
+      if (action.type === 'fill') {
+        const selector = this.mapElementIdToSelector(action.elementId);
+        actionsLogged.push({
+          actionType: 'FILL',
+          elementId: action.elementId,
+          selector,
+          inputValue: action.value,
+        });
+
+        // Screenshot before action
+        const screenshotBuf = await page.screenshot({ type: 'png' });
+
+        await page.fill(selector, action.value);
+        history.push(`fill-${action.elementId}-${action.value}`);
+      } else if (action.type === 'click') {
+        const selector = this.mapElementIdToSelector(action.elementId);
+        actionsLogged.push({
+          actionType: 'CLICK',
+          elementId: action.elementId,
+          selector,
+        });
+
+        await page.click(selector);
+        history.push(`click-${action.elementId}`);
+      } else if (action.type === 'submit') {
+        actionsLogged.push({
+          actionType: 'SUBMIT',
+          selector: '#submit-button',
+        });
+
+        // Click submit and wait for API response
+        await Promise.all([
+          page.click('#submit-button'),
+          page.waitForTimeout(500), // wait briefly for response render
+        ]);
+
+        // Evaluate outcome from portal’s observable HTML response state
+        const successBox = await page.$('.bg-emerald-950\\/50');
+        const errorBox = await page.$('.bg-red-950\\/50');
+
+        if (successBox) {
+          finalStatus = 'SUCCESS';
+        } else if (errorBox) {
+          finalStatus = 'FAILED';
+        }
+
+        isTerminated = true;
+        history.push('submit');
+      } else if (action.type === 'request_human_approval') {
+        actionsLogged.push({
+          actionType: 'REQUEST_HUMAN_APPROVAL',
+        });
+        isTerminated = true;
+        history.push(`request_human_approval-${action.reason}`);
+      } else if (action.type === 'stop') {
+        actionsLogged.push({
+          actionType: 'STOP',
+        });
+        isTerminated = true;
+        history.push(`stop-${action.reason}`);
+      }
     }
 
-    // 6. Submit form
-    actionsLogged.push({
-      actionType: 'SUBMIT',
-      selector: '#submit-button',
-    });
-    
-    // Screenshot before submit
+    const browserVersion = browser.version();
+    const currentUrl = page.url();
+    const finalHtml = await page.content();
+
+    // Mask sensitive credentials inside local screenshots for privacy compliance
     const screenshotBuffer = await page.screenshot({ type: 'png' });
-    
-    await Promise.all([
-      page.click('#submit-button'),
-      page.waitForTimeout(500), // Allow form response to render
-    ]);
 
-    // Check terminal output state
-    const successBox = await page.$('.bg-emerald-950\\/50');
-    const status = (successBox && !isOverLimit) || (successBox && isOverLimit && shouldCheckApproval) 
-      ? 'SUCCESS' 
-      : 'FAILED';
-
-    const finalOutput = await page.content();
     await browser.close();
 
-    // --- Persist the Ingested Trace ---
-    // Find or create workspace & projects
-    let workspace = await prisma.workspace.findFirst();
-    if (!workspace) {
-      workspace = await prisma.workspace.create({ data: { name: 'Default Workspace' } });
-    }
+    // 2. Submit Trace via LoomEval Ingestion Client SDK
+    const totalLatencyMs = Date.now() - startWallTime;
+    
+    const payload: SDKTracePayload = {
+      externalTraceId,
+      environmentId: this.config.environmentId,
+      agentVersion: this.config.agentVersion,
+      promptVersion: this.config.promptVersion,
+      userInput: `Submit invoice for ${vendorName} amount ${amount}`,
+      finalOutput: finalStatus === 'SUCCESS' ? 'Submitted successfully' : 'Validation failed',
+      status: finalStatus,
+      totalLatencyMs,
+      totalCost: 0.05, // estimated transaction cost
+      sessionId,
+      actions: actionsLogged,
+      networkLogs,
+    };
 
-    let project = await prisma.project.findFirst({ where: { workspaceId: workspace.id } });
-    if (!project) {
-      project = await prisma.project.create({
-        data: { name: 'E-Commerce Billing', workspaceId: workspace.id },
-      });
-    }
+    const res = await this.client.submitTrace(payload);
 
-    let env = await prisma.environment.findFirst({
-      where: { projectId: project.id, name: environmentName },
-    });
-    if (!env) {
-      env = await prisma.environment.create({
-        data: { name: environmentName, projectId: project.id },
-      });
-    }
-
-    let agent = await prisma.agent.findFirst({ where: { projectId: project.id } });
-    if (!agent) {
-      agent = await prisma.agent.create({
-        data: { name: 'Invoice Agent', projectId: project.id },
-      });
-    }
-
-    let agentVer = await prisma.agentVersion.findFirst({
-      where: { agentId: agent.id, version: this.config.agentVersion },
-    });
-    if (!agentVer) {
-      agentVer = await prisma.agentVersion.create({
-        data: {
-          agentId: agent.id,
-          version: this.config.agentVersion,
-          promptSchema: '{}',
-        },
-      });
-    }
-
-    // Create prompt version links
-    const prompt = await prisma.prompt.create({ data: { name: 'System Instructions' } });
-    await prisma.promptVersion.create({
-      data: {
-        promptId: prompt.id,
-        version: this.config.promptVersion,
-        content: this.config.systemInstructions,
-        agentVersionId: agentVer.id,
-      },
+    // 3. Write Visual Telemetry Screenshots to Secure Artifact Store
+    const trace = await prisma.trace.findUnique({
+      where: { id: res.traceId },
+      include: { browserSessions: true },
     });
 
-    // Create trace record
-    const trace = await prisma.trace.create({
-      data: {
-        sessionId,
-        agentId: agent.id,
-        agentVersionId: agentVer.id,
-        environmentId: env.id,
-        userInput: `Submit invoice for ${vendorName} amount ${amount}`,
-        finalOutput: status === 'SUCCESS' ? 'Submitted successfully' : 'Policy validation failed',
-        status,
-      },
-    });
-
-    // Create trace step spans
-    for (const action of actionsLogged) {
-      await prisma.traceStep.create({
-        data: {
-          traceId: trace.id,
-          name: action.actionType === 'NAVIGATE' ? 'RETRIEVE' : 'TOOL_CALL',
-          status: 'SUCCESS',
-          input: JSON.stringify(action),
-          output: '{}',
-        },
+    if (trace && trace.browserSessions.length > 0) {
+      await this.artifactStore.put({
+        browserSessionId: trace.browserSessions[0].id,
+        name: 'final_screenshot.png',
+        mimeType: 'image/png',
+        buffer: screenshotBuffer,
+        isSensitive: true, // Marked sensitive by default
       });
     }
 
-    // Create browser session logs
-    const browserSession = await prisma.browserSession.create({
-      data: {
-        traceId: trace.id,
-        browserVersion: 'Chromium 124',
-        viewportWidth: 1280,
-        viewportHeight: 720,
-        userAgent: 'Mozilla/5.0 Playwright Agent',
-      },
-    });
-
-    // Persist browser actions
-    for (const action of actionsLogged) {
-      await prisma.browserAction.create({
-        data: {
-          browserSessionId: browserSession.id,
-          actionType: action.actionType,
-          selector: action.selector,
-          inputValue: action.inputValue ? this.redactor.redactText(action.inputValue) : undefined,
-          url: action.url,
-        },
-      });
-    }
-
-    // Persist page snapshots
-    await prisma.pageSnapshot.create({
-      data: {
-        browserSessionId: browserSession.id,
-        url: targetUrl,
-        domContent: initialHtml,
-        accessibilityTree: '[]',
-      },
-    });
-
-    // Persist network exchanges
-    for (const ex of exchangesLogged) {
-      await prisma.networkExchange.create({
-        data: {
-          browserSessionId: browserSession.id,
-          url: ex.url,
-          method: ex.method,
-          requestHeaders: this.redactor.redactHeaders(ex.requestHeaders),
-          requestBody: ex.requestBody ? this.redactor.redactText(ex.requestBody) : undefined,
-          responseHeaders: this.redactor.redactHeaders(ex.responseHeaders),
-          responseBody: ex.responseBody ? this.redactor.redactText(ex.responseBody) : undefined,
-          statusCode: ex.statusCode,
-          latencyMs: ex.latencyMs,
-        },
-      });
-    }
-
-    return trace.id;
+    return res.traceId;
   }
 }

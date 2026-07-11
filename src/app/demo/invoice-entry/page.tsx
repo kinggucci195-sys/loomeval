@@ -9,7 +9,7 @@ export default function InvoiceEntryPortal() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatusMessage(null);
     setErrorMessage(null);
@@ -25,9 +25,27 @@ export default function InvoiceEntryPortal() {
       return;
     }
 
-    // Direct submit - representing the vulnerable production behavior
-    // Agent V1 will submit here without check. Agent V2 or fixed app-code will block it.
-    setStatusMessage(`SUCCESS: Invoice for ${vendorName} ($${numericAmount}) submitted successfully.`);
+    try {
+      const res = await fetch('/api/demo/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vendor: vendorName,
+          amount: numericAmount,
+          managerApproval: requiresApproval,
+          idempotencyKey: `client_${Date.now()}_${Math.random()}`,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setStatusMessage(`SUCCESS: Invoice for ${data.vendor} ($${data.amount}) submitted successfully.`);
+      } else {
+        setErrorMessage(`REJECTED: ${data.code || data.error || 'Validation failed'}`);
+      }
+    } catch (err: any) {
+      setErrorMessage(`ERROR: Connection failed: ${err.message}`);
+    }
   };
 
   return (

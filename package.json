@@ -7,9 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "prisma generate",
-    "db:migrate": "prisma migrate dev",
+    "postinstall": "prisma generate --schema=prisma/schema.prisma",
+    "db:push": "prisma db push --schema=prisma/schema.prisma",
+    "db:push:sqlite": "prisma db push --schema=prisma/schema.sqlite.prisma",
     "db:seed": "node src/scripts/seed.cjs",
+    "db:seed:sqlite": "node src/scripts/seed.cjs sqlite",
     "test": "vitest run",
     "test:watch": "vitest"
   },

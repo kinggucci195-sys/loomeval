@@ -7,7 +7,7 @@ async function main() {
   console.log('Seeding LoomEval Database (CommonJS)...');
 
   // 1. Clean Database (Reverse dependency order)
-  await prisma.canaryObservation.deleteMany();
+  await prisma.canaryReadinessSimulation.deleteMany();
   await prisma.deployment.deleteMany();
   await prisma.release.deleteMany();
   await prisma.releaseGateResult.deleteMany();
@@ -42,6 +42,7 @@ async function main() {
   await prisma.project.deleteMany();
   await prisma.workspace.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.invoice.deleteMany();
 
   // 2. Create Base Users & Workspace
   const user = await prisma.user.create({
@@ -179,6 +180,7 @@ async function main() {
     const trace = await prisma.trace.create({
       data: {
         sessionId: `session_uuid_${i}`,
+        projectId: project.id,
         agentId: agent.id,
         agentVersionId: isFailure ? v1.id : v2.id,
         environmentId: prodEnv.id,
@@ -234,7 +236,7 @@ async function main() {
     await prisma.browserAction.create({
       data: {
         browserSessionId: session.id,
-        actionType: 'TYPE',
+        actionType: 'FILL',
         selector: '#vendor-name',
         inputValue: 'Acme Corp',
       },
@@ -243,7 +245,7 @@ async function main() {
     await prisma.browserAction.create({
       data: {
         browserSessionId: session.id,
-        actionType: 'TYPE',
+        actionType: 'FILL',
         selector: '#invoice-amount',
         inputValue: String(amount),
       },
@@ -275,6 +277,7 @@ async function main() {
           firstBadStep: step2.id,
           diagnosis: `Invoice of $${amount} submitted without manager approval, violating FAT-B6 safety threshold.`,
           evidence: JSON.stringify({ amount, requiresApproval: false }),
+          severity: 'HIGH',
         },
       });
     }
@@ -393,7 +396,7 @@ async function main() {
         },
       });
 
-      await prisma.canaryObservation.create({
+      await prisma.canaryReadinessSimulation.create({
         data: {
           releaseId: release.id,
           errorRate: 0.12, // 12% failed runs
@@ -423,7 +426,7 @@ async function main() {
         },
       });
 
-      await prisma.canaryObservation.create({
+      await prisma.canaryReadinessSimulation.create({
         data: {
           releaseId: release.id,
           errorRate: 0.0, // 0% errors in canary
@@ -440,7 +443,7 @@ async function main() {
       actorId: user.id,
       actorType: 'USER',
       action: 'RELEASE_PROMOTE',
-      description: 'Promoted Agent Version 1.2.0 to 100% PRODUCTION after successful canary execution metrics.',
+      description: 'Promoted Agent Version 1.2.0 to 100% PRODUCTION after successful canary readiness simulation metrics.',
     },
   });
 

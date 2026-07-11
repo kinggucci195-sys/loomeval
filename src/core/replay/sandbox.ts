@@ -1,70 +1,69 @@
 import { Page } from 'playwright';
 import { prisma } from '../../lib/db';
+import { EvaluationEngine } from '../evaluator/engine';
+import { InvoiceAgent, AgentConfig } from '../agent/invoiceAgent';
+import { DecisionProvider } from '../agent/decision';
 
-export interface ReplayReport {
-  replayMode: 'FIXTURE' | 'COUNTERFACTUAL' | 'MOCKED' | 'LIVE';
+export interface ReplayCoverageReport {
+  totalRecordedRequests: number;
+  matchedRequests: number;
+  unmatchedRequests: number;
+  coveragePercentage: number;
+}
+
+export interface SandboxReplayReport {
+  replayMode: 'FORENSIC' | 'PROTOCOL' | 'LIVE';
   success: boolean;
   mismatchDetail?: string;
   stepsReplayed: number;
+  coverage?: ReplayCoverageReport;
+  newTokenUsage?: number;
+  newTraceId?: string;
 }
 
 export class ReplaySandbox {
   /**
-   * Run Fixture Replay:
-   * Replays recorded model outputs and tool sequences deterministically.
-   * Does not launch a browser. Extremely fast, validates agent logic and parsing.
+   * Forensic Replay Mode:
+   * Simply fetches and returns static recorded evidence (no execution).
    */
-  static async runFixtureReplay(traceId: string): Promise<ReplayReport> {
+  static async runForensicInspection(traceId: string): Promise<SandboxReplayReport> {
     const trace = await prisma.trace.findUnique({
       where: { id: traceId },
       include: {
         browserSessions: {
           include: {
             actions: true,
+            networkLogs: true,
           },
         },
       },
     });
 
     if (!trace || trace.browserSessions.length === 0) {
-      throw new Error('Trace not found or has no browser sessions.');
+      throw new Error('Trace not found.');
     }
 
-    const recordedActions = trace.browserSessions[0].actions;
-    
-    // Simulate re-running the agent state transitions against mock outputs
-    // We expect the candidate agent to perform the identical sequence of action types
-    let stepsReplayed = 0;
-    for (let i = 0; i < recordedActions.length; i++) {
-      const rec = recordedActions[i];
-      // Mocking step execution
-      stepsReplayed++;
-      
-      // If we observe a failure state, log mismatch
-      if (rec.actionType === 'SUBMIT' && trace.status === 'FAILED') {
-        // Mock mismatch detection (e.g. policy breach)
-        return {
-          replayMode: 'FIXTURE',
-          success: false,
-          mismatchDetail: `Fixture replay failed at step ${i + 1}: expected successful invoice submission, but hit policy error.`,
-          stepsReplayed,
-        };
-      }
-    }
+    const session = trace.browserSessions[0];
+    const steps = session.actions.length;
 
     return {
-      replayMode: 'FIXTURE',
-      success: true,
-      stepsReplayed,
+      replayMode: 'FORENSIC',
+      success: trace.status === 'SUCCESS',
+      mismatchDetail: `Forensic inspection of trace ${traceId}: status is ${trace.status}`,
+      stepsReplayed: steps,
     };
   }
 
   /**
-   * Run Protocol Replay:
-   * Launches Playwright browser and intercepts all network calls, returning
-   * HTTP responses captured in the NetworkExchange table (HAR log).
+   * Protocol Replay Mode:
+   * Intercepts Playwright page network traffic and resolves requests using HAR logs.
+   * Blocks unmapped requests and production domains.
    */
-  static async runProtocolReplay(traceId: string, page: Page): Promise<ReplayReport> {
+  static async runProtocolReplay(
+    traceId: string,
+    page: Page,
+    allowListDomains: string[] = ['localhost']
+  ): Promise<SandboxReplayReport> {
     const trace = await prisma.trace.findUnique({
       where: { id: traceId },
       include: {
@@ -85,31 +84,50 @@ export class ReplaySandbox {
     const actions = session.actions;
     const networkLogs = session.networkLogs;
 
-    // Set up network interception using Playwright's page.route
+    let matchedRequests = 0;
+    let unmatchedRequests = 0;
+
+    // Enforce network safety and matching rules
     await page.route('**/*', async (route) => {
       const req = route.request();
       const url = req.url();
       const method = req.method();
+      const postData = req.postData() || '';
 
-      // Search matching exchange in DB network logs
-      const match = networkLogs.find(
-        (log) => log.url === url && log.method === method
-      );
+      const urlObj = new URL(url);
+
+      // Block production domains
+      const isAllowedHost = allowListDomains.some(domain => urlObj.hostname === domain) || url.startsWith('file:///');
+      if (!isAllowedHost) {
+        unmatchedRequests++;
+        await route.abort('blockedbyclient');
+        return;
+      }
+
+      // Match against stored HAR logs
+      const match = networkLogs.find((log) => {
+        const isUrlMatch = log.url === url;
+        const isMethodMatch = log.method === method;
+        const isBodyMatch = method === 'POST' || method === 'PUT'
+          ? (log.requestBody || '') === postData
+          : true;
+        return isUrlMatch && isMethodMatch && isBodyMatch;
+      });
 
       if (match) {
-        // Return mocked response
+        matchedRequests++;
         await route.fulfill({
           status: match.statusCode,
           headers: JSON.parse(match.responseHeaders),
           body: match.responseBody || '',
         });
       } else {
-        // Fallback for uncaptured assets (e.g. local CSS/HTML)
-        await route.continue();
+        unmatchedRequests++;
+        // Block unmatched requests by default
+        await route.abort('failed');
       }
     });
 
-    // Execute recorded actions sequentially against intercepted browser
     let stepsReplayed = 0;
     try {
       for (const action of actions) {
@@ -117,30 +135,132 @@ export class ReplaySandbox {
           await page.goto(action.url);
         } else if (action.actionType === 'CLICK' && action.selector) {
           await page.click(action.selector);
-        } else if (action.actionType === 'TYPE' && action.selector && action.inputValue) {
+        } else if (action.actionType === 'FILL' && action.selector && action.inputValue) {
           await page.fill(action.selector, action.inputValue);
         } else if (action.actionType === 'SUBMIT') {
-          // If it is submit, click the button and wait for navigation
-          await page.evaluate(() => {
-            const form = document.querySelector('form');
-            if (form) form.submit();
-          });
+          await page.click('#submit-button');
         }
         stepsReplayed++;
       }
     } catch (err: any) {
       return {
-        replayMode: 'MOCKED',
+        replayMode: 'PROTOCOL',
         success: false,
-        mismatchDetail: `Playwright execution failed: ${err.message}`,
+        mismatchDetail: `Protocol execution mismatch at action ${stepsReplayed + 1}: ${err.message}`,
         stepsReplayed,
+        coverage: {
+          totalRecordedRequests: networkLogs.length,
+          matchedRequests,
+          unmatchedRequests,
+          coveragePercentage: networkLogs.length > 0 ? (matchedRequests / networkLogs.length) * 100 : 100,
+        },
       };
     }
 
     return {
-      replayMode: 'MOCKED',
+      replayMode: 'PROTOCOL',
       success: true,
       stepsReplayed,
+      coverage: {
+        totalRecordedRequests: networkLogs.length,
+        matchedRequests,
+        unmatchedRequests,
+        coveragePercentage: networkLogs.length > 0 ? (matchedRequests / networkLogs.length) * 100 : 100,
+      },
+    };
+  }
+
+  /**
+   * Live Local Replay Mode:
+   * Resets local state, runs the agent again against the local page,
+   * generates a new trace, and compares it with the source trace.
+   */
+  static async runLiveLocalReplay(
+    sourceTraceId: string,
+    agentConfig: AgentConfig,
+    decisionProvider: DecisionProvider,
+    targetUrl: string,
+    vendorName: string,
+    amount: number,
+    resetStateUrl: string = 'http://localhost:3000/api/demo/invoices'
+  ): Promise<SandboxReplayReport> {
+    // 1. Reset local portal database state
+    try {
+      await fetch(resetStateUrl, { method: 'DELETE' });
+    } catch (e) {
+      // safe fallback if live server endpoint is not running in test runner
+    }
+
+    // 2. Instantiate and execute actual agent run
+    const agent = new InvoiceAgent(agentConfig, decisionProvider);
+    const newSessionId = `replay_live_${Date.now()}`;
+    const newExternalTraceId = `le_ext_${Date.now()}`;
+
+    const newTraceId = await agent.runInvoiceEntry(
+      targetUrl,
+      vendorName,
+      amount,
+      newExternalTraceId,
+      newSessionId
+    );
+
+    // 3. Fetch both traces for comparison
+    const sourceTrace = await prisma.trace.findUnique({
+      where: { id: sourceTraceId },
+      include: { browserSessions: { include: { actions: true } } },
+    });
+
+    const newTrace = await prisma.trace.findUnique({
+      where: { id: newTraceId },
+      include: { browserSessions: { include: { actions: true } } },
+    });
+
+    if (!sourceTrace || !newTrace) {
+      throw new Error('Trace comparison failed: trace logs not found');
+    }
+
+    // 4. Compare action timelines and statuses
+    const sourceActions = sourceTrace.browserSessions[0].actions;
+    const newActions = newTrace.browserSessions[0].actions;
+
+    let mismatchDetail: string | undefined = undefined;
+    if (sourceActions.length !== newActions.length) {
+      mismatchDetail = `Step count mismatch: source trace took ${sourceActions.length} actions, replay took ${newActions.length} actions.`;
+    } else {
+      for (let i = 0; i < sourceActions.length; i++) {
+        if (sourceActions[i].actionType !== newActions[i].actionType) {
+          mismatchDetail = `Action mismatch at step ${i + 1}: expected ${sourceActions[i].actionType}, got ${newActions[i].actionType}`;
+          break;
+        }
+      }
+    }
+
+    // 5. Evaluate the new trace
+    const evalReport = await EvaluationEngine.evaluateInvoicePolicy(newTraceId);
+
+    // Link replay results in DB
+    const replayJob = await prisma.replayJob.create({
+      data: {
+        replayMode: 'LIVE',
+        status: evalReport.passed ? 'COMPLETED' : 'FAILED',
+      },
+    });
+
+    await prisma.replayResult.create({
+      data: {
+        replayJobId: replayJob.id,
+        traceId: sourceTraceId,
+        status: evalReport.passed ? 'COMPLETED' : 'FAILED',
+        mismatchDetail: mismatchDetail || 'Traces matched perfectly.',
+      },
+    });
+
+    return {
+      replayMode: 'LIVE',
+      success: evalReport.passed && !mismatchDetail,
+      mismatchDetail,
+      stepsReplayed: newActions.length,
+      newTraceId,
     };
   }
 }

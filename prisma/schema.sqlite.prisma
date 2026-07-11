@@ -1,69 +1,10 @@
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 generator client {
   provider = "prisma-client-js"
-}
-
-enum TraceStatus {
-  SUCCESS
-  FAILED
-  RUNNING
-}
-
-enum ReplayMode {
-  FORENSIC
-  PROTOCOL
-  LIVE
-}
-
-enum ReplayStatus {
-  PENDING
-  RUNNING
-  COMPLETED
-  FAILED
-}
-
-enum EnvironmentType {
-  PRODUCTION
-  STAGING
-  DEVELOPMENT
-}
-
-enum ApprovalStatus {
-  APPROVED
-  REJECTED
-}
-
-enum ReleaseStatus {
-  CANARY
-  PRODUCTION
-  ROLLED_BACK
-}
-
-enum ActionType {
-  FILL
-  CLICK
-  REQUEST_HUMAN_APPROVAL
-  SUBMIT
-  STOP
-  NAVIGATE
-}
-
-enum FailureSeverity {
-  CRITICAL
-  HIGH
-  MEDIUM
-  LOW
-}
-
-enum StepType {
-  MODEL_CALL
-  TOOL_CALL
-  REASONING
-  RETRIEVE
 }
 
 model User {
@@ -108,14 +49,14 @@ model Project {
 }
 
 model Environment {
-  id          String          @id @default(uuid())
-  name        EnvironmentType
+  id          String       @id @default(uuid())
+  name        String       // "PRODUCTION" | "STAGING" | "DEVELOPMENT"
   projectId   String
-  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   traces      Trace[]
   deployments Deployment[]
   releases    Release[]
-  createdAt   DateTime        @default(now())
+  createdAt   DateTime     @default(now())
 }
 
 model Agent {
@@ -170,7 +111,7 @@ model Trace {
   environment     Environment      @relation(fields: [environmentId], references: [id], onDelete: Cascade)
   userInput       String
   finalOutput     String?
-  status          TraceStatus
+  status          String           // "SUCCESS" | "FAILED" | "RUNNING"
   totalCost       Float            @default(0.0)
   totalLatencyMs  Int              @default(0)
   createdAt       DateTime         @default(now())
@@ -190,7 +131,7 @@ model TraceStep {
   traceId     String
   trace       Trace    @relation(fields: [traceId], references: [id], onDelete: Cascade)
   parentId    String?
-  name        StepType
+  name        String   // "MODEL_CALL" | "TOOL_CALL" | "REASONING" | "RETRIEVE"
   status      String   // "SUCCESS" | "ERROR"
   input       String   // JSON input payload
   output      String   // JSON output payload
@@ -220,7 +161,7 @@ model BrowserAction {
   id               String         @id @default(uuid())
   browserSessionId String
   session          BrowserSession @relation(fields: [browserSessionId], references: [id], onDelete: Cascade)
-  actionType       ActionType
+  actionType       String         // "FILL" | "CLICK" | "REQUEST_HUMAN_APPROVAL" | "SUBMIT" | "STOP" | "NAVIGATE"
   elementId        String?
   selector         String?
   inputValue       String?        // Redacted input text
@@ -276,14 +217,14 @@ model Failure {
   firstBadStep String          // ID of step/action where deviation began
   diagnosis    String          // Root cause text
   evidence     String          // JSON describing the specific selector/network mismatch
-  severity     FailureSeverity
+  severity     String          // "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
   createdAt    DateTime        @default(now())
 }
 
 model ReplayJob {
   id         String         @id @default(uuid())
-  replayMode ReplayMode
-  status     ReplayStatus
+  replayMode String         // "FORENSIC" | "PROTOCOL" | "LIVE"
+  status     String         // "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"
   createdAt  DateTime       @default(now())
   results    ReplayResult[]
 }
@@ -294,7 +235,7 @@ model ReplayResult {
   replayJob      ReplayJob    @relation(fields: [replayJobId], references: [id], onDelete: Cascade)
   traceId        String
   trace          Trace        @relation(fields: [traceId], references: [id], onDelete: Cascade)
-  status         ReplayStatus
+  status         String       // "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"
   mismatchDetail String?      // JSON description of action/network mismatches
   createdAt      DateTime     @default(now())
 }
@@ -355,7 +296,7 @@ model ExperimentRun {
   experiment    Experiment          @relation(fields: [experimentId], references: [id], onDelete: Cascade)
   variantPrompt String?             // Prompt payload under test
   variantModel  String?             // Model variant under test
-  status        ReplayStatus
+  status        String              // "PENDING" | "RUNNING" | "COMPLETED" | "FAILED"
   createdAt     DateTime            @default(now())
   results       ExperimentResult[]
   releaseGates  ReleaseGateResult[]
@@ -388,13 +329,13 @@ model ReleaseGateResult {
 }
 
 model Approval {
-  id           String         @id @default(uuid())
+  id           String    @id @default(uuid())
   approvedById String
-  approvedBy   User           @relation(fields: [approvedById], references: [id])
-  status       ApprovalStatus
+  approvedBy   User      @relation(fields: [approvedById], references: [id])
+  status       String    // "APPROVED" | "REJECTED"
   notes        String?
   releases     Release[]
-  createdAt    DateTime       @default(now())
+  createdAt    DateTime  @default(now())
 }
 
 model Release {
@@ -408,7 +349,7 @@ model Release {
   releaseGateResult          ReleaseGateResult            @relation(fields: [releaseGateResultId], references: [id])
   approvalId                 String?
   approval                   Approval?                    @relation(fields: [approvalId], references: [id])
-  status                     ReleaseStatus
+  status                     String                       // "CANARY" | "PRODUCTION" | "ROLLED_BACK"
   trafficPercent             Int                          @default(0)
   rollbackReason             String?
   createdAt                  DateTime                     @default(now())
