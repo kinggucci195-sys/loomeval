@@ -45,6 +45,10 @@ jobs:
       TRACE_RETENTION_DAYS: 30
       ARTIFACT_RETENTION_DAYS: 30
       SCREENSHOT_RETENTION_DAYS: 7
+      RATE_LIMIT_TRACE_WRITE_RPM: 60
+      RATE_LIMIT_ARTIFACT_WRITE_RPM: 20
+      RATE_LIMIT_REPLAY_RPM: 10
+      SCREENSHOT_CAPTURE: failures_only
 
     steps:
       - name: Checkout repository
