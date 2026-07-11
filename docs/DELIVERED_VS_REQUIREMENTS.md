@@ -8,27 +8,27 @@ This document provides a side-by-side comparison of the product requirements req
 
 | Requested Product Requirement | Implementation Status | Delivered Mechanism / Code Reference | Verification Method |
 | :--- | :--- | :--- | :--- |
-| **1. Brutal Self-Audit & Anti-Dashboard wedge** | **100% Compliant** | [docs/PRODUCT_STRATEGY.md](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/docs/PRODUCT_STRATEGY.md) and [docs/PITCH.md](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/docs/PITCH.md) | Formulated strategic counter-thesis and measurable kill criteria. |
-| **2. Verified Research Findings (15 academic papers & competitor audits)** | **100% Compliant** | [docs/RESEARCH.md](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/docs/RESEARCH.md) and [docs/COMPETITIVE_MATRIX.md](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/docs/COMPETITIVE_MATRIX.md) | Audited 15 competitors on browser-specific axes (DOM, HAR, screenshots). |
-| **3. Browser Replay Feasibility Analysis** | **100% Compliant** | [docs/BROWSER_REPLAY_FEASIBILITY.md](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/docs/BROWSER_REPLAY_FEASIBILITY.md) | Structured analysis of deterministic network replay bounds (HAR vs WebSockets). |
-| **4. Agent Failure Taxonomy (FAT-B1 to FAT-B6)** | **100% Compliant** | [docs/FAILURE_TAXONOMY.md](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/docs/FAILURE_TAXONOMY.md) | Classified locator breaks, VLM offsets, modal blockages, and policy violations. |
-| **5. Narrow Relational Schema (SQLite quick-start)** | **100% Compliant** | [prisma/schema.prisma](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/prisma/schema.prisma) | SQLite DB migration verified via `npx prisma db push`. |
-| **6. Playwright Invoices Agent (Demonstration)** | **100% Compliant** | [src/core/agent/invoiceAgent.ts](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/agent/invoiceAgent.ts) | Launches headless Chromium, navigates forms, inputs text, clicks buttons, and dumps traces. |
-| **7. PII & Sensitive Header Redaction** | **100% Compliant** | [src/core/security/redactor.ts](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/security/redactor.ts) | Scrubs cookies, authorization headers, and custom text inputs. |
-| **8. Ingestion Key Security (Hashing)** | **100% Compliant** | [src/core/security/keys.ts](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/security/keys.ts) | Computes and validates SHA-256 API key hashes; plaintext tokens are never stored. |
-| **9. Trace Ingestion & Telemetry API** | **100% Compliant** | [invoiceAgent.ts:L142-260](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/agent/invoiceAgent.ts#L142-L260) | Persists browser sessions, DOM snapshots, network logs, and coordinates. |
-| **10. Trajectory sequence & Policy Evaluators** | **100% Compliant** | [src/core/evaluator/engine.ts](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/evaluator/engine.ts) | Asserts navigation constraints and flags $500 auto-approval breaches (FAT-B6). |
-| **11. Local Sandbox Replay (HAR Mocks)** | **100% Compliant** | [src/core/replay/sandbox.ts](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/replay/sandbox.ts) | Intercepts HTTP traffic using Playwright routing configurations. |
-| **12. Failure-to-Test Case Conversion** | **100% Compliant** | [src/core/testcase/converter.ts](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/testcase/converter.ts) | Pulls logs and mock targets, compiling them into a versioned test fixture. |
-| **13. Gated Release Experiments** | **100% Compliant** | [src/core/experiment/runner.ts](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/experiment/runner.ts) and [src/core/release/gate.ts](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/release/gate.ts) | Executes variant configurations against suites, validating cost/latency/pass rates. |
-| **14. Canary Promotions & Rollbacks** | **Seeded & Tracked** | [src/scripts/seed.cjs:357-427](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/scripts/seed.cjs#L357-L427) | Models canary traffic splits, metrics checks, rollback audits, and user approvals. |
-| **15. Target Portal Form Page** | **100% Compliant** | [src/app/demo/invoice-entry/page.tsx](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/app/demo/invoice-entry/page.tsx) | Corporate portal route with checkbox verification warnings. |
+| **1. Brutal Self-Audit & Anti-Dashboard wedge** | `Completed` | [docs/PRODUCT_STRATEGY.md](PRODUCT_STRATEGY.md) and [docs/PITCH.md](PITCH.md) | Formulated strategic counter-thesis and measurable kill criteria. |
+| **2. Verified Research Findings (15 academic papers & competitor audits)** | `Completed` | [docs/RESEARCH.md](RESEARCH.md) and [docs/COMPETITIVE_MATRIX.md](COMPETITIVE_MATRIX.md) | Audited 15 competitors on browser-specific axes (DOM, HAR, screenshots). |
+| **3. Browser Replay Feasibility Analysis** | `Completed` | [docs/BROWSER_REPLAY_FEASIBILITY.md](BROWSER_REPLAY_FEASIBILITY.md) | Structured analysis of deterministic network replay bounds (HAR vs WebSockets). |
+| **4. Agent Failure Taxonomy (FAT-B1 to FAT-B6)** | `Completed` | [docs/FAILURE_TAXONOMY.md](FAILURE_TAXONOMY.md) | Classified locator breaks, VLM offsets, modal blockages, and policy violations. |
+| **5. Narrow Relational Schema (SQLite quick-start)** | `Completed` | [prisma/schema.prisma](../prisma/schema.prisma) | SQLite DB migration verified via `npx prisma db push`. |
+| **6. Playwright Invoices Agent (Demonstration)** | `Completed` | [src/core/agent/invoiceAgent.ts](../src/core/agent/invoiceAgent.ts) | Launches headless Chromium, navigates forms, inputs text, clicks buttons, and dumps traces. |
+| **7. PII & Sensitive Header Redaction** | `Completed` | [src/core/security/redactor.ts](../src/core/security/redactor.ts) | Scrubs cookies, authorization headers, and custom text inputs. |
+| **8. Ingestion Key Security (Hashing)** | `Completed` | [src/core/security/keys.ts](../src/core/security/keys.ts) | Computes and validates SHA-256 API key hashes; plaintext tokens are never stored. |
+| **9. Trace Ingestion & Telemetry API** | `Completed` | [src/app/api/v1/traces/route.ts](../src/app/api/v1/traces/route.ts) | Persists browser sessions, DOM snapshots, network logs, and coordinates. |
+| **10. Trajectory sequence & Policy Evaluators** | `Completed` | [src/core/evaluator/engine.ts](../src/core/evaluator/engine.ts) | Asserts navigation constraints and flags $500 auto-approval breaches (FAT-B6). |
+| **11. Local Sandbox Replay (HAR Mocks)** | `Completed` | [src/core/replay/sandbox.ts](../src/core/replay/sandbox.ts) | Intercepts HTTP traffic using Playwright routing configurations. |
+| **12. Failure-to-Test Case Conversion** | `Completed` | [src/core/testcase/converter.ts](../src/core/testcase/converter.ts) | Pulls logs and mock targets, compiling them into a versioned test fixture. |
+| **13. Gated Release Experiments** | `Completed` | [src/core/experiment/runner.ts](../src/core/experiment/runner.ts) and [src/core/release/gate.ts](../src/core/release/gate.ts) | Executes variant configurations against suites, validating cost/latency/pass rates. |
+| **14. Canary Promotions & Rollbacks** | `Seeded & Modelled` | [src/scripts/seed.cjs](../src/scripts/seed.cjs) | Models canary traffic splits, metrics checks, rollback audits, and user approvals. |
+| **15. Target Portal Form Page** | `Completed` | [src/app/demo/invoice-entry/page.tsx](../src/app/demo/invoice-entry/page.tsx) | Corporate portal route with checkbox verification warnings. |
 
 ---
 
 ## 2. Core Verification Suite
 All elements are verified in a single, comprehensive integration test suite:
-*   **Location**: [src/core/__tests__/verticalSlice.test.ts](file:///c:/Users/kingg/OneDrive/Documents/Evaluation%20Harness/src/core/__tests__/verticalSlice.test.ts)
+*   **Location**: [src/core/__tests__/verticalSlice.test.ts](../src/core/__tests__/verticalSlice.test.ts)
 *   **Result**: **Passed** (`npx vitest run` output verified green).
 
 ### Test Flow Verification Steps:

@@ -1,0 +1,31 @@
+graph TD
+    subgraph Agent Runtime
+        A[Browser Agent] -->|Executes Actions| B[Playwright Browser]
+        C[Decision Provider] -->|Returns Next Action| A
+        B -->|Queries Selectors| D[Vendor Portal]
+    end
+
+    subgraph Collection
+        E[LoomEval Client SDK] -->|API Payload| F[Telemetry Ingestion API]
+        F -->|Validate Token| G[Key Hash Manager]
+        F -->|Sanitize Headers/Cookies| H[PII Redactor]
+    end
+
+    subgraph Storage
+        F -->|Write Metadata| I[(PostgreSQL Metadata)]
+        F -->|Upload screenshots/zips| J[(Secure Local Storage)]
+    end
+
+    subgraph Evaluation & Replay
+        K[Evaluation Engine] -->|Find deviation step| I
+        L[Protocol Replay Sandbox] -->|Mock HAR files| B
+        M[Live Local Replay Sandbox] -->|DELETE Portal state| D
+    end
+
+    subgraph Release Workflow
+        N[Experiment Runner] -->|Compare versions| K
+        O[Release Gating] -->|Pass rates / Regressions| I
+    end
+
+    B -->|Actions & Timings| E
+    J -->|Prevent path traversal| J
