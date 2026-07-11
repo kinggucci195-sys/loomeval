@@ -14,7 +14,7 @@
     "db:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
     "db:seed": "node src/scripts/seed.cjs",
     "test": "vitest run",
-    "test:ci": "vitest run --reporter=default --reporter=json --outputFile=test-report.json",
+    "test:ci": "vitest run --reporter=default --reporter=json --outputFile=test-report.json --fileParallelism=false",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
