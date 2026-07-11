@@ -83,7 +83,7 @@ async function main() {
       projectId: project.id,
       keyPrefix: 'le_ingest_',
       hashedKey,
-      scope: 'INGEST',
+      scope: 'TRACE_WRITE',
     },
   });
 

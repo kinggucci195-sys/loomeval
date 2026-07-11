@@ -47,20 +47,20 @@ export class EvaluationEngine {
 
     // 1. Identify amount input action and check if amount > 500
     const amountAction = actions.find(
-      (a) => a.actionType === 'FILL' && a.elementId === 'invoice-amount'
+      (a: any) => a.actionType === 'FILL' && a.elementId === 'invoice-amount'
     );
     const amountVal = amountAction && amountAction.inputValue ? parseFloat(amountAction.inputValue) : 0;
     const amountExceeded = amountVal > 500;
 
     // 2. Identify approval action
     const approvalActionIdx = actions.findIndex(
-      (a) => a.actionType === 'CLICK' && a.elementId === 'approval-checkbox'
+      (a: any) => a.actionType === 'CLICK' && a.elementId === 'approval-checkbox'
     );
     const approvalEnabled = approvalActionIdx !== -1;
 
     // 3. Find submission action
     const submitActionIdx = actions.findIndex(
-      (a) => a.actionType === 'SUBMIT'
+      (a: any) => a.actionType === 'SUBMIT'
     );
     const submitAction = actions[submitActionIdx];
 
@@ -69,7 +69,7 @@ export class EvaluationEngine {
 
     // 4. Verify network exchange payload to /api/demo/invoices contains managerApproval: true
     const invoiceExchange = networkLogs.find(
-      (log) => log.url.includes('/api/demo/invoices') && log.method === 'POST'
+      (log: any) => log.url.includes('/api/demo/invoices') && log.method === 'POST'
     );
 
     let requestContainedApproval = false;

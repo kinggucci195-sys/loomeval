@@ -2,13 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, master, develop ]
+  workflow_dispatch:
 
 jobs:
   test:
-    name: Build & Test
+    name: Lint · Typecheck · Test · Build
     runs-on: ubuntu-latest
 
     services:
@@ -48,7 +47,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 8
+          version: 9
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -59,14 +58,57 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps
+      - name: Install Playwright (chromium only)
+        run: npx playwright install --with-deps chromium
 
-      - name: Deploy Prisma Migrations
-        run: npx prisma migrate deploy
+      - name: Generate Prisma client
+        run: npx prisma generate
 
-      - name: Build Next.js app
+      - name: Run database migrations
+        run: pnpm run db:migrate:deploy
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Type-check
+        run: pnpm run typecheck
+
+      - name: Run tests
+        run: pnpm run test
+
+      - name: Build
         run: pnpm run build
 
-      - name: Run Tests
-        run: pnpm run test
+      # ── Upload failure evidence ──────────────────────────────────────────
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload Vitest reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report
+          path: |
+            coverage/
+            test-report.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload application logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-logs
+          path: |
+            logs/
+            *.log
+          retention-days: 30
+          if-no-files-found: ignore

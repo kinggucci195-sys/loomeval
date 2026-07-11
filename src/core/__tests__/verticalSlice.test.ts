@@ -175,22 +175,22 @@ describe('LoomEval: Core Verification & Integration Suite', () => {
     });
 
     // Keys
-    const ingestContext = await KeyManager.generateKey(projectId, 'INGEST');
+    const ingestContext = await KeyManager.generateKey({ projectId, scope: 'TRACE_WRITE' });
     activeIngestKey = ingestContext.plaintextKey;
 
-    const readContext = await KeyManager.generateKey(projectId, 'READ');
+    const readContext = await KeyManager.generateKey({ projectId, scope: 'TRACE_READ' });
     readOnlyKey = readContext.plaintextKey;
 
     // Generate expired key manually
     const expRandomBytes = crypto.randomBytes(24).toString('hex');
-    const expKey = `le_ingest_${expRandomBytes}`;
+    const expKey = `le_trace_write_${expRandomBytes}`;
     const expHashed = crypto.createHash('sha256').update(expKey).digest('hex');
     await prisma.ingestionKey.create({
       data: {
         projectId,
-        keyPrefix: 'le_ingest_',
+        keyPrefix: 'le_trace_write_',
         hashedKey: expHashed,
-        scope: 'INGEST',
+        scope: 'TRACE_WRITE',
         expiresAt: new Date(Date.now() - 10000), // expired 10s ago
       },
     });
@@ -198,14 +198,14 @@ describe('LoomEval: Core Verification & Integration Suite', () => {
 
     // Generate revoked key manually
     const revRandomBytes = crypto.randomBytes(24).toString('hex');
-    const revKey = `le_ingest_${revRandomBytes}`;
+    const revKey = `le_trace_write_${revRandomBytes}`;
     const revHashed = crypto.createHash('sha256').update(revKey).digest('hex');
     await prisma.ingestionKey.create({
       data: {
         projectId,
-        keyPrefix: 'le_ingest_',
+        keyPrefix: 'le_trace_write_',
         hashedKey: revHashed,
-        scope: 'INGEST',
+        scope: 'TRACE_WRITE',
         revokedAt: new Date(), // revoked now
       },
     });
@@ -296,33 +296,33 @@ describe('LoomEval: Core Verification & Integration Suite', () => {
       const data = await res.json();
       expect(data.error).toContain('Unauthorized: Invalid or expired API key');
       
-      const context = await KeyManager.verifyKey(readOnlyKey);
+      const context = await KeyManager.verifyKey({ plaintextKey: readOnlyKey });
       expect(context.projectId).toBe(projectId);
-      expect(context.scope).toBe('READ');
+      expect(context.scope).toBe('TRACE_READ');
     });
 
     it('should rotate an active key, rejecting the old key and accepting the new key', async () => {
       // 1. Generate an initial ingest key
-      const keyContext = await KeyManager.generateKey(projectId, 'INGEST');
+      const keyContext = await KeyManager.generateKey({ projectId, scope: 'TRACE_WRITE' });
       const oldKey = keyContext.plaintextKey;
 
       // Verify old key works
-      const verifyOld = await KeyManager.verifyKey(oldKey);
+      const verifyOld = await KeyManager.verifyKey({ plaintextKey: oldKey });
       expect(verifyOld.projectId).toBe(projectId);
 
       // 2. Rotate the key
-      const rotationResult = await KeyManager.rotateKey(oldKey);
+      const rotationResult = await KeyManager.rotateKey({ oldPlaintextKey: oldKey });
       const newKey = rotationResult.plaintextKey;
       expect(newKey).toBeDefined();
-      expect(newKey.startsWith('le_ingest_')).toBe(true);
+      expect(newKey.startsWith('le_trace_write_')).toBe(true);
 
       // 3. Verify old key is now rejected (revoked)
-      await expect(KeyManager.verifyKey(oldKey)).rejects.toThrow('Unauthorized: Invalid or expired API key');
+      await expect(KeyManager.verifyKey({ plaintextKey: oldKey })).rejects.toThrow('Unauthorized: Invalid or expired API key');
 
       // 4. Verify new key successfully authenticates
-      const verifyNew = await KeyManager.verifyKey(newKey);
+      const verifyNew = await KeyManager.verifyKey({ plaintextKey: newKey });
       expect(verifyNew.projectId).toBe(projectId);
-      expect(verifyNew.scope).toBe('INGEST');
+      expect(verifyNew.scope).toBe('TRACE_WRITE');
     });
 
     it('should enforce tenant isolation, blocking cross-tenant queries and actions', async () => {
@@ -570,7 +570,7 @@ describe('LoomEval: Core Verification & Integration Suite', () => {
 
       const originalFindUnique = prisma.trace.findUnique;
       let findUniqueCalled = 0;
-      prisma.trace.findUnique = async function (args: any) {
+      prisma.trace.findUnique = async function (this: any, args: any) {
         findUniqueCalled++;
         if (findUniqueCalled === 1) {
           return null;
@@ -1029,7 +1029,7 @@ describe('LoomEval: Core Verification & Integration Suite', () => {
           const res = await readyGET();
           expect(res.status).toBe(503);
           const data = await res.json();
-          expect(data.status).toBe('unhealthy');
+          expect(data.status).toBe('not_ready');
         } finally {
           (prisma as any).$queryRaw = originalQueryRaw;
         }
@@ -1042,7 +1042,7 @@ describe('LoomEval: Core Verification & Integration Suite', () => {
           const res = await readyGET();
           expect(res.status).toBe(503);
           const data = await res.json();
-          expect(data.status).toBe('unhealthy');
+          expect(data.status).toBe('not_ready');
         } finally {
           if (originalUrl !== undefined) process.env.REDIS_URL = originalUrl;
         }
@@ -1083,7 +1083,7 @@ describe('LoomEval: Core Verification & Integration Suite', () => {
           ingestionKey: activeIngestKey,
           environmentId,
         };
-        const agent = new InvoiceAgent(agentConfig, new DeterministicPolicyProvider([]));
+        const agent = new InvoiceAgent(agentConfig, new DeterministicPolicyProvider());
         await expect(
           agent.runInvoiceEntry(
             'https://malicious-external-domain.com',
@@ -1140,12 +1140,16 @@ describe('LoomEval: Core Verification & Integration Suite', () => {
         for (const q of queues) {
           expect(q).toBeDefined();
           expect(q.name).toBeDefined();
-          expect(q.opts.defaultJobOptions?.attempts).toBe(3);
+          const expectedAttempts = q.name === 'retention' ? 5 : 3;
+          expect(q.opts.defaultJobOptions?.attempts).toBe(expectedAttempts);
           expect(q.opts.defaultJobOptions?.backoff).toEqual({
             type: 'exponential',
             delay: 1000,
           });
-          expect(q.opts.defaultJobOptions?.timeout).toBe(60000);
+          let expectedTimeout = 60000;
+          if (q.name === 'experiment') expectedTimeout = 300000;
+          if (q.name === 'retention') expectedTimeout = 120000;
+          expect((q.opts.defaultJobOptions as any)?.timeout).toBe(expectedTimeout);
           expect(q.opts.defaultJobOptions?.removeOnFail).toBe(false);
         }
       });

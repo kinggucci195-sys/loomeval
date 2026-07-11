@@ -76,7 +76,7 @@ export class TestCaseConverter {
     const session = trace.browserSessions[0];
 
     // Extract network exchanges as HAR mock fixtures
-    const networkMocks = session.networkLogs.map((log) => ({
+    const networkMocks = session.networkLogs.map((log: any) => ({
       url: log.url,
       method: log.method,
       statusCode: log.statusCode,
@@ -85,8 +85,8 @@ export class TestCaseConverter {
 
     // Extract action dependencies
     const requiredTools = session.actions
-      .filter((a) => a.actionType === 'CLICK' || a.actionType === 'TYPE')
-      .map((a) => a.selector || 'element');
+      .filter((a: any) => a.actionType === 'CLICK' || a.actionType === 'TYPE')
+      .map((a: any) => a.selector || 'element');
 
     return {
       sourceTraceId: traceId,

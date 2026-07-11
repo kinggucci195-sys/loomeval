@@ -4,6 +4,7 @@ import { EvaluationEngine } from '../evaluator/engine';
 import { InvoiceAgent, AgentConfig } from '../agent/invoiceAgent';
 import { DecisionProvider } from '../agent/decision';
 import { validateSelector, validateUrl } from './vocabulary';
+import { AppError } from '../errors/errors';
 
 export interface ReplayCoverageReport {
   totalRecordedRequests: number;
@@ -41,7 +42,11 @@ export class ReplaySandbox {
     });
 
     if (!trace || trace.browserSessions.length === 0) {
-      throw new Error('Trace not found.');
+      throw new AppError({
+        code: 'TRACE_NOT_FOUND',
+        message: `Trace ${traceId} not found`,
+        status: 404,
+      });
     }
 
     const session = trace.browserSessions[0];
@@ -58,12 +63,12 @@ export class ReplaySandbox {
   /**
    * Protocol Replay Mode:
    * Intercepts Playwright page network traffic and resolves requests using HAR logs.
-   * Blocks unmapped requests and production domains.
+   * Blocks unmapped requests and production domains by default.
    */
   static async runProtocolReplay(
     traceId: string,
     page: Page,
-    allowListDomains: string[] = ['localhost']
+    allowListDomains: string[] = ['localhost', '127.0.0.1']
   ): Promise<SandboxReplayReport> {
     const trace = await prisma.trace.findUnique({
       where: { id: traceId },
@@ -78,15 +83,21 @@ export class ReplaySandbox {
     });
 
     if (!trace || trace.browserSessions.length === 0) {
-      throw new Error('Trace not found.');
+      throw new AppError({
+        code: 'TRACE_NOT_FOUND',
+        message: `Trace ${traceId} not found`,
+        status: 404,
+      });
     }
 
     const session = trace.browserSessions[0];
     const actions = session.actions;
-    const networkLogs = session.networkLogs;
+    const networkLogs = [...session.networkLogs]; // Mutable copy for sequential matching
 
     let matchedRequests = 0;
     let unmatchedRequests = 0;
+    const recordedMatches: string[] = [];
+    const recordedUnmatches: string[] = [];
 
     // Enforce network safety and matching rules
     await page.route('**/*', async (route) => {
@@ -94,37 +105,81 @@ export class ReplaySandbox {
       const url = req.url();
       const method = req.method();
       const postData = req.postData() || '';
+      const resourceType = req.resourceType();
 
-      const urlObj = new URL(url);
-
-      // Block production domains
-      const isAllowedHost = allowListDomains.some(domain => urlObj.hostname === domain) || url.startsWith('file:///');
-      if (!isAllowedHost) {
+      // 1. Identify unsupported WebSockets and service workers
+      if (
+        resourceType === 'websocket' ||
+        resourceType === 'eventsource' ||
+        url.startsWith('ws://') ||
+        url.startsWith('wss://') ||
+        req.headers()['service-worker'] === 'script'
+      ) {
         unmatchedRequests++;
+        recordedUnmatches.push(`[UNSUPPORTED_PROTOCOL] ${method} ${url}`);
         await route.abort('blockedbyclient');
         return;
       }
 
-      // Match against stored HAR logs
-      const match = networkLogs.find((log) => {
-        const isUrlMatch = log.url === url;
+      // 2. Reject non-allowlisted / production domains
+      let urlObj: URL;
+      try {
+        urlObj = new URL(url);
+      } catch {
+        unmatchedRequests++;
+        recordedUnmatches.push(`[INVALID_URL] ${method} ${url}`);
+        await route.abort('blockedbyclient');
+        return;
+      }
+
+      const isAllowedHost =
+        allowListDomains.some((domain) => urlObj.hostname === domain) ||
+        url.startsWith('file:///');
+
+      if (!isAllowedHost) {
+        unmatchedRequests++;
+        recordedUnmatches.push(`[PRODUCTION_DOMAIN_BLOCKED] ${method} ${url}`);
+        await route.abort('blockedbyclient');
+        return;
+      }
+
+      // 3. Match Method, Canonical URL, Query parameters, and Request Body in order
+      const matchIndex = networkLogs.findIndex((log) => {
+        const logUrlObj = new URL(log.url);
+        // Canonical URL match (protocol, hostname, pathname)
+        const isCanonicalMatch =
+          logUrlObj.protocol === urlObj.protocol &&
+          logUrlObj.hostname === urlObj.hostname &&
+          logUrlObj.pathname === urlObj.pathname;
+
         const isMethodMatch = log.method === method;
-        const isBodyMatch = method === 'POST' || method === 'PUT'
-          ? (log.requestBody || '') === postData
-          : true;
-        return isUrlMatch && isMethodMatch && isBodyMatch;
+
+        // Query parameter match (exact keys and values)
+        const isQueryMatch = logUrlObj.search === urlObj.search;
+
+        // Request Body exact match for POST/PUT methods
+        const isBodyMatch =
+          method === 'POST' || method === 'PUT'
+            ? (log.requestBody || '') === postData
+            : true;
+
+        return isCanonicalMatch && isMethodMatch && isQueryMatch && isBodyMatch;
       });
 
-      if (match) {
+      if (matchIndex !== -1) {
+        // Retrieve matched log and remove it from array to support repeated requests in order
+        const matchedLog = networkLogs.splice(matchIndex, 1)[0];
         matchedRequests++;
+        recordedMatches.push(`${method} ${url}`);
         await route.fulfill({
-          status: match.statusCode,
-          headers: JSON.parse(match.responseHeaders),
-          body: match.responseBody || '',
+          status: matchedLog.statusCode,
+          headers: JSON.parse(matchedLog.responseHeaders),
+          body: matchedLog.responseBody || '',
         });
       } else {
+        // 4. Block unmatched requests by default (No live fallback)
         unmatchedRequests++;
-        // Block unmatched requests by default
+        recordedUnmatches.push(`[UNMATCHED] ${method} ${url}`);
         await route.abort('failed');
       }
     });
@@ -154,10 +209,13 @@ export class ReplaySandbox {
         mismatchDetail: `Protocol execution mismatch at action ${stepsReplayed + 1}: ${err.message}`,
         stepsReplayed,
         coverage: {
-          totalRecordedRequests: networkLogs.length,
+          totalRecordedRequests: session.networkLogs.length,
           matchedRequests,
           unmatchedRequests,
-          coveragePercentage: networkLogs.length > 0 ? (matchedRequests / networkLogs.length) * 100 : 100,
+          coveragePercentage:
+            session.networkLogs.length > 0
+              ? (matchedRequests / session.networkLogs.length) * 100
+              : 100,
         },
       };
     }
@@ -167,18 +225,21 @@ export class ReplaySandbox {
       success: true,
       stepsReplayed,
       coverage: {
-        totalRecordedRequests: networkLogs.length,
+        totalRecordedRequests: session.networkLogs.length,
         matchedRequests,
         unmatchedRequests,
-        coveragePercentage: networkLogs.length > 0 ? (matchedRequests / networkLogs.length) * 100 : 100,
+        coveragePercentage:
+          session.networkLogs.length > 0
+            ? (matchedRequests / session.networkLogs.length) * 100
+            : 100,
       },
     };
   }
 
   /**
    * Live Local Replay Mode:
-   * Resets local state, runs the agent again against the local page,
-   * generates a new trace, and compares it with the source trace.
+   * Resets local state, runs the agent again, generates a new trace,
+   * links and compares them. Ensures zero contact with production domains.
    */
   static async runLiveLocalReplay(
     sourceTraceId: string,
@@ -189,14 +250,29 @@ export class ReplaySandbox {
     amount: number,
     resetStateUrl: string = 'http://localhost:3000/api/demo/invoices'
   ): Promise<SandboxReplayReport> {
-    // 1. Reset local portal database state
+    // Safety check: targetUrl must not contact production domains
+    const targetUrlObj = new URL(targetUrl);
+    const isLocal =
+      targetUrlObj.protocol === 'file:' ||
+      targetUrlObj.hostname === 'localhost' ||
+      targetUrlObj.hostname === '127.0.0.1';
+
+    if (!isLocal) {
+      throw new AppError({
+        code: 'REPLAY_SECURITY_VIOLATION',
+        message: `Security Violation: Replay is forbidden to contact production domain: ${targetUrlObj.hostname}`,
+        status: 400,
+      });
+    }
+
+    // 1. Reset local state
     try {
       await fetch(resetStateUrl, { method: 'DELETE' });
     } catch (e) {
-      // safe fallback if live server endpoint is not running in test runner
+      // safe fallback if server endpoint is not active
     }
 
-    // 2. Instantiate and execute actual agent run
+    // 2. Instantiate and execute actual agent run (generates a new trace)
     const agent = new InvoiceAgent(agentConfig, decisionProvider);
     const newSessionId = `replay_live_${Date.now()}`;
     const newExternalTraceId = `le_ext_${Date.now()}`;
@@ -224,6 +300,14 @@ export class ReplaySandbox {
       throw new Error('Trace comparison failed: trace logs not found');
     }
 
+    // Link new trace to original trace record
+    await prisma.trace.update({
+      where: { id: newTraceId },
+      data: {
+        incidentId: sourceTrace.incidentId, // link incidents
+      },
+    });
+
     // 4. Compare action timelines and statuses
     const sourceActions = sourceTrace.browserSessions[0].actions;
     const newActions = newTrace.browserSessions[0].actions;
@@ -240,14 +324,13 @@ export class ReplaySandbox {
       }
     }
 
-    // 5. Evaluate the new trace
+    // 5. Evaluate outcomes using rules
     const evalReport = await EvaluationEngine.evaluateInvoicePolicy(newTraceId);
 
-    // Link replay results in DB
     const replayJob = await prisma.replayJob.create({
       data: {
         replayMode: 'LIVE',
-        status: evalReport.passed ? 'COMPLETED' : 'FAILED',
+        status: evalReport.passed && !mismatchDetail ? 'COMPLETED' : 'FAILED',
       },
     });
 
@@ -255,7 +338,7 @@ export class ReplaySandbox {
       data: {
         replayJobId: replayJob.id,
         traceId: sourceTraceId,
-        status: evalReport.passed ? 'COMPLETED' : 'FAILED',
+        status: evalReport.passed && !mismatchDetail ? 'COMPLETED' : 'FAILED',
         mismatchDetail: mismatchDetail || 'Traces matched perfectly.',
       },
     });

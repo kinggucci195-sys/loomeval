@@ -15,14 +15,14 @@ export async function POST(request: Request) {
     const token = authHeader.substring(7);
     let authContext;
     try {
-      authContext = await KeyManager.verifyKey(token);
+      authContext = await KeyManager.verifyKey({
+        plaintextKey: token,
+      });
+      if (authContext.scope !== 'ARTIFACT_WRITE' && authContext.scope !== 'TRACE_WRITE') {
+        return NextResponse.json({ error: 'Unauthorized: Invalid scope for artifact upload' }, { status: 401 });
+      }
     } catch (err: any) {
       return NextResponse.json({ error: err.message || 'Unauthorized' }, { status: 401 });
-    }
-
-    // Enforce scope rule
-    if (authContext.scope !== 'INGEST' && authContext.scope !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized: Invalid or expired API key' }, { status: 401 });
     }
 
     return await TenantManager.run(

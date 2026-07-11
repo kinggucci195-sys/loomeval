@@ -56,14 +56,12 @@ export async function POST(request: Request) {
     const token = authHeader.substring(7);
     let authContext;
     try {
-      authContext = await KeyManager.verifyKey(token);
+      authContext = await KeyManager.verifyKey({
+        plaintextKey: token,
+        requiredScope: 'TRACE_WRITE',
+      });
     } catch (err: any) {
       return NextResponse.json({ error: err.message || 'Unauthorized' }, { status: 401 });
-    }
-
-    // Enforce scope rule
-    if (authContext.scope !== 'INGEST' && authContext.scope !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized: Invalid or expired API key' }, { status: 401 });
     }
 
     return await TenantManager.run(

@@ -29,11 +29,11 @@ export class ReleaseGating {
 
     const candidateResults = candidateRun.results;
     const totalTests = candidateResults.length;
-    const passedTests = candidateResults.filter((r) => r.passed).length;
+    const passedTests = candidateResults.filter((r: any) => r.passed).length;
     const candidatePassRate = passedTests / totalTests;
     
-    const avgCandidateLatency = candidateResults.reduce((sum, r) => sum + r.latencyMs, 0) / totalTests;
-    const avgCandidateCost = candidateResults.reduce((sum, r) => sum + r.cost, 0) / totalTests;
+    const avgCandidateLatency = candidateResults.reduce((sum: number, r: any) => sum + r.latencyMs, 0) / totalTests;
+    const avgCandidateCost = candidateResults.reduce((sum: number, r: any) => sum + r.cost, 0) / totalTests;
 
     let passRateGate = candidatePassRate >= rules.minPassRate;
     let latencyGate = avgCandidateLatency <= rules.maxAllowedLatencyMs;
@@ -52,8 +52,8 @@ export class ReleaseGating {
       if (baselineRun && baselineRun.results.length > 0) {
         const baselineResults = baselineRun.results;
         const totalBase = baselineResults.length;
-        const avgBaseLatency = baselineResults.reduce((sum, r) => sum + r.latencyMs, 0) / totalBase;
-        const avgBaseCost = baselineResults.reduce((sum, r) => sum + r.cost, 0) / totalBase;
+        const avgBaseLatency = baselineResults.reduce((sum: number, r: any) => sum + r.latencyMs, 0) / totalBase;
+        const avgBaseCost = baselineResults.reduce((sum: number, r: any) => sum + r.cost, 0) / totalBase;
 
         if (rules.maxCostRegressionPercent && avgBaseCost > 0) {
           const costIncrease = ((avgCandidateCost - avgBaseCost) / avgBaseCost) * 100;

@@ -51,7 +51,7 @@ function flattenCompoundKeys(where: any) {
 export const prisma = rawPrisma.$extends({
   query: {
     $allModels: {
-      async $allOperations({ model, operation, args, query }) {
+      async $allOperations({ model, operation, args, query }: any) {
         const modelLower = model.toLowerCase();
         
         // If this query is marked to bypass isolation, run it directly
