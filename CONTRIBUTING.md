@@ -1,74 +1,53 @@
 # Contributing to LoomEval
 
-Thank you for your interest in contributing to LoomEval! We welcome community contributions to make browser agents more reliable.
+Thank you for contributing to LoomEval! This document outlines our development workflow and contribution guidelines.
 
 ---
 
-## 1. Setup Your Development Environment
+## 1. Development Setup
 
-Ensure you have the following installed locally:
-*   Node.js (version 18.x or 20.x)
-*   Docker & Docker Compose (for running PostgreSQL locally)
-*   Git
-
-### Quick Start Installation
-
-1.  Clone the repository:
+1.  **Clone the Repository**:
     ```bash
     git clone https://github.com/kinggucci195-sys/loomeval.git
     cd loomeval
     ```
-2.  Install package dependencies:
+2.  **Install Dependencies**:
+    We use `pnpm` for package management.
     ```bash
-    npm install
+    pnpm install
     ```
-3.  Set up your environment config file:
+3.  **Run Database Migrations**:
+    Start your local PostgreSQL database, then run:
     ```bash
-    cp .env.example .env
+    pnpm run db:migrate:deploy
     ```
-4.  Boot up the development database:
+4.  **Install Playwright Browsers**:
     ```bash
-    docker compose up -d postgres
-    ```
-5.  Generate the Prisma Client and migrate tables:
-    ```bash
-    npm run db:push
-    npm run db:seed
-    ```
-6.  Install Playwright browser binaries:
-    ```bash
-    npx playwright install chromium
+    npx playwright install --with-deps chromium
     ```
 
 ---
 
-## 2. Running Verification Checks
+## 2. Coding Standards
 
-Before committing any files or submitting a Pull Request, run the following verification steps:
-
-### A. Run Integration Test Suite
-Verify that all E2E walkthroughs and trace validation tests pass successfully:
-```bash
-npm test
-```
-
-### B. Compile the Next.js Production Build
-Verify that the bundler and compiler have zero TypeScript errors:
-```bash
-npx next build
-```
+-   **TypeScript**: We enforce strict type checks. Ensure that `pnpm run typecheck` passes with zero errors before committing.
+-   **Linting**: Run `pnpm run lint` to format and analyze the codebase.
+-   **Migrations**: Do not use `prisma db push` for schema updates. All database changes must be proposed via migrations generated using `pnpm run db:migrate:dev`.
 
 ---
 
-## 3. Git Style Guide & Commit Rules
+## 3. Contribution Workflow
 
-To maintain a clean commit history, we enforce the following guidelines:
-
-### A. Specific Staging
-*   **Do not use `git add .`**. Explicitly stage files by path to prevent local config folders (e.g. `.agent/` or `.claude/`) or debug logs from leaking into version control.
-*   *Correct Example*: `git add package.json prisma/schema.prisma`
-
-### B. Commit Messages
-All commit messages must begin with a ticket namespace prefix and description:
-*   *Format*: `fix(CD-XXX): description` or `feat(CD-XXX): description`
-*   *Example*: `fix(CD-LOOMEVAL): implement core replay sandboxing`
+1.  **Create a Feature Branch**:
+    ```bash
+    git checkout -b feat/your-feature-name
+    ```
+2.  **Make Changes & Verify Locally**:
+    Run linting, type checks, and tests:
+    ```bash
+    pnpm run lint
+    pnpm run typecheck
+    pnpm run test
+    ```
+3.  **Submit a Pull Request**:
+    Submit your PR targeting the default branch. Ensure that the public GitHub Actions CI passes successfully. Direct pushes to the default branch are blocked by branch protection policies.

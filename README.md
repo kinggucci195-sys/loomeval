@@ -256,16 +256,15 @@ For verification evidence, see [Implementation Status](docs/IMPLEMENTATION_STATU
 
 ## 10. Documentation Index
 
-Explore the design specifications, strategic planning, and security audits:
-*   [Implementation Status](docs/IMPLEMENTATION_STATUS.md) - Audit matrix of all capabilities.
-*   [How LoomEval Works](docs/HOW_IT_WORKS.md) - Complete vertical-slice walk.
-*   [Use Cases and Benefits](docs/USE_CASES_AND_BENEFITS.md) - Realistic incident coverage examples.
-*   [Product Strategy](docs/PRODUCT_STRATEGY.md) - Wedge definitions and startup roadmap.
-*   [Security Policy](docs/assets/SECURITY.md) - Encryption, path traversal, and PII standards.
-*   [Competitive Matrix](docs/COMPETITIVE_MATRIX.md) - Analysis of observability and testing alternatives.
-*   [Academic Research Track](docs/RESEARCH.md) - 15 academic references for evaluations.
-*   [Failure Taxonomy](docs/FAILURE_TAXONOMY.md) - Agent execution defect code classes.
-*   [Contributing Guide](docs/assets/CONTRIBUTING.md) - Setup instructions for contributors.
+Explore the design specifications, security audits, and governance rules:
+*   [Architecture Design](docs/ARCHITECTURE.md) - System architecture and directory structure.
+*   [Security Policy](SECURITY.md) - Vulnerability reporting and isolation standards.
+*   [Threat Model](docs/THREAT_MODEL.md) - Security threat categories and mitigations.
+*   [Data Handling Policy](docs/DATA_HANDLING.md) - Telemetry collection and PII scrubbing standards.
+*   [Evaluation Methodology](docs/EVALUATION_METHODOLOGY.md) - Trajectory evaluation engines and rubrics.
+*   [Production Readiness Checklist](docs/PRODUCTION_READINESS_CHECKLIST.md) - Capabilitiy maturity checklist.
+*   [Repository Governance Guide](docs/REPOSITORY_GOVERNANCE.md) - Branch protection rules.
+*   [Contributing Workflow](CONTRIBUTING.md) - Local development and PR setup.
 
 ---
 
