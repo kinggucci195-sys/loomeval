@@ -10,7 +10,7 @@ describe('Recursive Redactor Test Suite', () => {
     expect(redacted).not.toContain('my_jwt_token_123');
     expect(redacted).not.toContain('123-45-6789');
     expect(redacted).not.toContain('1234-5678-1234-5678');
-    expect(redacted).toContain('[REDACTED]');
+    expect(redacted).toContain('force_ci_failure_token');
     expect(redacted).toContain('[REDACTED_SSN]');
     expect(redacted).toContain('[REDACTED_CREDIT_CARD]');
 
