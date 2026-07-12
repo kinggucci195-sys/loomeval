@@ -4,16 +4,16 @@ This document outlines the repository governance rules and branch protection pol
 
 ---
 
-## 1. Default Branch Protection Policy
+To guarantee release safety and maintain a green codebase, branch protection rules must be configured manually by the repository owner in the GitHub Settings UI (under `Settings > Branches > Add branch protection rule` for the default branch `feat/browser-replay-vertical-slice`):
 
-To guarantee release safety and maintain a green codebase, branch protection rules are enforced on the default branch (e.g. `main` or `master`):
+1.  **Block Direct Pushes**: Select "Restrict who can push to matching branches" (direct pushes blocked). All changes must be submitted via feature branches.
+2.  **Required Pull Requests**: Check "Require a pull request before merging" (at least 1 approval required).
+3.  **Required Status Checks (CI)**: Check "Require status checks to pass before merging" and search/select the `CI` status check (Lint · Typecheck · Test · Build).
+4.  **Keep Branch Up-to-Date**: Check "Require branches to be up to date before merging".
+5.  **Block Force Pushes**: Check "Block force pushes" (force pushing is permanently blocked).
 
-1.  **Block Direct Pushes**: Developers and administrators are blocked from pushing code directly to the default branch. All changes must be submitted via feature branches.
-2.  **Required Pull Requests**: All changes must go through a pull request (PR). A PR cannot be merged without approvals.
-3.  **Required Status Checks (CI)**: The `CI` workflow (Lint · Typecheck · Test · Build) must pass successfully before merging.
-4.  **Keep Branch Up-to-Date**: Branch must be rebased or merged with the latest changes from the default branch before the merge is allowed.
-5.  **Block Force Pushes**: Force pushing (`git push --force`) is permanently blocked on the default branch to prevent history modification.
-6.  **Review Requirements**: At least 1 review approval is required from a project owner or senior engineer before merge authorization.
+> [!NOTE]
+> **Credential Limitation**: Automated configuration or validation of branch protection via the GitHub API is currently `BLOCKED` due to local token credential expiration (HTTP 401 Bad Credentials). Verification must be performed manually via the GitHub Web UI.
 
 ---
 
