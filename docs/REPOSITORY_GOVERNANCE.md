@@ -4,7 +4,7 @@ This document outlines the repository governance rules and branch protection pol
 
 ---
 
-To guarantee release safety and maintain a green codebase, branch protection rules must be configured manually by the repository owner in the GitHub Settings UI (under `Settings > Branches > Add branch protection rule` for the default branch `feat/browser-replay-vertical-slice`):
+To guarantee release safety and maintain a green codebase, branch protection rules must be configured manually by the repository owner in the GitHub Settings UI (under `Settings > Branches > Add branch protection rule` for the default branch `main`):
 
 1.  **Block Direct Pushes**: Select "Restrict who can push to matching branches" (direct pushes blocked). All changes must be submitted via feature branches.
 2.  **Required Pull Requests**: Check "Require a pull request before merging" (at least 1 approval required).
